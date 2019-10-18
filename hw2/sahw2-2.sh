@@ -12,6 +12,7 @@
 
 # Temp files
 TMP="/tmp/.sahw2.tmp"
+CPU="/tmp/.cpu.sahw2.tmp"
 MEM="/tmp/.mem.sahw2.tmp"
 NET="/tmp/.net.sahw2.tmp"
 FILE="/tmp/.file.sahw2.tmp"
@@ -22,12 +23,31 @@ cpuInfo() {
 	sysctl hw.model | awk '{ print "CPU model: " $2 }' > $TMP
 	sysctl hw.machine | awk '{ print "CPU machine: " $2 }' >> $TMP
 	sysctl hw.ncpu | awk '{ print "CPU core: " $2 }' >> $TMP
-	dialog --title "CPU INFO" --msgbox "$(cat $TMP)" 17 40
-	result=$?
 
-	if [ $result -eq $DIALOG_OK ]; then
-		mainMenu
-	fi
+	stty intr ^M
+	
+	while true; do
+		cat $TMP > $CPU
+		printf "\nCPU Loading\n" >> $CPU
+		
+		top -Pd2 | grep ^CPU | tail -n2 | awk '{ print $1$2" USER: "$3" SYST: "$7" IDLE: "$11 }' >> $CPU
+
+		# calculate percentage and pass to dialog gauge
+		declare -i count
+		count=$(cat $CPU | wc -l)-5
+		tail -n $count $CPU | awk -F'[\ %]' -v cnt=$count '{ idle += $9 } END{ print int(100-idle/cnt)) }' | \
+		dialog	--title "CPU INFO" --gauge "$(cat $CPU)" 17 50
+		
+		# read input, timeout = 0.5 sec.
+		read -t 1 -N 1 input
+		if [ $? -eq 0 ] && [ -z $input ]; then # if exit status = 0, and input length is zero (-z)
+			#mainMenu
+			break
+		fi
+	done
+
+	mainMenu
+
 }
 
 memInfo() {
@@ -178,4 +198,3 @@ mainMenu() {
 
 mainMenu
 
-find /tmp -name "*.sahw2.tmp" -type f -delete
