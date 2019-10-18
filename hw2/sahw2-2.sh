@@ -24,8 +24,6 @@ cpuInfo() {
 	sysctl hw.machine | awk '{ print "CPU machine: " $2 }' >> $TMP
 	sysctl hw.ncpu | awk '{ print "CPU core: " $2 }' >> $TMP
 
-	stty intr ^M
-	
 	while true; do
 		cat $TMP > $CPU
 		printf "\nCPU Loading\n" >> $CPU
