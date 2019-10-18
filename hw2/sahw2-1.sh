@@ -1,0 +1,1 @@
+ls -lAR | grep ^- | sort -k 5 -nr | head -5 | awk '{ print NR ":" $5 " " $9 }' ; ls -lAR | grep ^d -c | xargs echo Dir num: ; ls -lAR | grep ^- -c | xargs echo File num: ; ls -lAR | grep ^- | awk '{ sum += $5 } END{ print "Total: " sum }'
