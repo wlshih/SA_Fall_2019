@@ -24,18 +24,25 @@ cpuInfo() {
 	sysctl hw.machine | awk '{ print "CPU machine: " $2 }' >> $TMP
 	sysctl hw.ncpu | awk '{ print "CPU core: " $2 }' >> $TMP
 
+	printf "\nCPU Loading\n" >> $TMP
+	cat $TMP > $CPU
+	
+	declare -i count
 	while true; do
+		# show dialog and calculate percetage on the second iteration	
+		if [ $count -ne 0 ]; then
+			tail -n $count $CPU | awk -F'[\ %]' -v cnt=$count '{ idle += $9 } END{ print int(100-idle/cnt) }' | \
+			dialog	--title "CPU INFO" --gauge "$(cat $CPU)" 17 50
+		else
+			echo 0 | dialog --title "CPU INFO" --gauge "$(cat $CPU)" 17 50
+		fi
+			
 		cat $TMP > $CPU
-		printf "\nCPU Loading\n" >> $CPU
-		
 		top -Pd2 | grep ^CPU | tail -n2 | awk '{ print $1$2" USER: "$3" SYST: "$7" IDLE: "$11 }' >> $CPU
-
-		# calculate percentage and pass to dialog gauge
-		declare -i count
-		count=$(cat $CPU | wc -l)-5
-		tail -n $count $CPU | awk -F'[\ %]' -v cnt=$count '{ idle += $9 } END{ print int(100-idle/cnt)) }' | \
-		dialog	--title "CPU INFO" --gauge "$(cat $CPU)" 17 50
 		
+		# calculate percentage
+		count=$(cat $CPU | wc -l)-5
+
 		# read input, timeout = 0.5 sec.
 		read -t 1 -N 1 input
 		if [ $? -eq 0 ] && [ -z $input ]; then # if exit status = 0, and input length is zero (-z)
