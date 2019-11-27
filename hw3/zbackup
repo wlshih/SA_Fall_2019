@@ -1,0 +1,161 @@
+#! /usr/local/bin/bash
+# zbackup by Waylon Shih
+
+TMP="/tmp/zfslist"
+LOG="/home/ftp/zfslog"
+DIR="/home/ftp/snapshots"
+
+zlist() {
+    
+    zfs list -t snapshot | tail -n +2 | sed 's/@/ /g' | sort -k 2 | awk '{ printf "%-5s %-21s %s\n", NR, $1, $2}' > $TMP
+
+    # no specify
+    if [[ -z $1 ]]; then
+        echo "ID    DATASET               TIME"
+        cat $TMP
+    # id
+    elif [[ $1 =~ ^[0-9]*$ ]]; then
+        echo "ID    DATASET               TIME"
+        cat $TMP | sed -n "$1, $1p"
+    # dataset name
+    elif [[ -z $2 ]]; then
+        echo "ID    DATASET               TIME"
+        cat $TMP | grep "$1[^/]"
+    # both dataset name and id
+    else
+        echo "ID    DATASET               TIME"
+        cat $TMP | grep "$1[^/]" | sed -n "$2, $2p"
+        #cat $TMP | grep "$1[^/]" | awk -v id=$2 'id==$1 { print }'
+    fi
+}
+
+zlog() {
+    time=$(date "+%Y-%m-%d-%H:%M:%S")
+    printf "%-10s%-64s%s\n" $1 $2 $time >> $LOG
+}
+
+zcreate() {
+    if [ "$EUID" -ne 0 ]; then
+        echo "Permission denied. Please run with sudo."
+        exit
+    fi
+
+    date=$(date "+%Y-%m-%d-%H:%M:%S")
+    dset=$1
+    rot=$2
+    
+    zfs snapshot ${dset}@${date} && \
+    echo "Snap ${dset}@${date}" && \
+    zlog "Snap" ${dset}@${date}
+
+    # rotation
+    if [[ ! -z "$2" ]]; then
+        #rotate ${dset} ${rot}
+        echo "not finished yet QQ"
+    fi
+
+}
+
+zdelete() {
+    if [ "$EUID" -ne 0 ]; then
+        echo "Permission denied. Please run with sudo,"
+        exit
+    fi
+
+    # destroy specified dataset or id
+    for dset in $(zlist $1 $2 | awk 'NR!=1{ print $2"@"$3 }'); do
+        zfs destroy ${dset} && \
+        echo "Destroy $dset" && \
+        zlog "Destroy" $dset
+    done
+    
+}
+
+zexport() {
+    if [ "$EUID" -ne 0 ]; then
+        echo "Permission denied. Please run with sudo,"
+        exit
+    fi
+    
+    if [ $# -ne 2 ]; then
+        echo $#
+        printUsage
+    fi
+
+    dataset=$1
+    id=$2
+    
+    # get dataset snapshot
+    snapshot=$(zlist $dataset $id | awk 'NR!=1{ print $2"@"$3 }')
+    escape=$(printf $snapshot | sed 's/\//-/g') 
+    if [[ -z $snapshot ]]; then
+        echo "Dataset not found."
+        exit
+    fi
+   
+    # send snapshot file and compress, encrypt
+    [ -d $DIR ] || mkdir $DIR
+    zfs send $snapshot | gzip > ${DIR}/${escape}.gz && \
+    openssl aes-256-cbc -a -salt -in ${DIR}/${escape}.gz -out ${DIR}/${escape}.gz.enc && \
+    rm ${DIR}/${escape}.gz && \
+    echo "Export $snapshot" && \
+    zlog "Export" $snapshot
+
+}
+
+zimport() {
+
+    if [ "$EUID" -ne 0 ]; then
+        echo "Permission denied. Please run with sudo,"
+        exit
+    fi
+    
+    if [ $# -ne 2 ]; then
+        printUsage
+    fi
+    
+    dataset=$1
+    file=$2
+
+    # get file
+    [ -f $file ] && \
+    openssl aes-256-cbc -a -d -in ${file} -out ${file%.*} && \
+    gzip -d ${file%.*} > ${file%%.*} && \
+    cat ${file%%.*} | zfs receive $dataset && \
+    rm ${file%%.*} && \
+    echo "Import ${file} to ${dataset}" && \
+    zlog "Import" ${file}_to ${dataset}
+}
+
+
+printUsage() {
+
+    if [ $# -eq 0 ]; then
+        echo "usage:
+            Create: \`zbackup DATASET [ROTATION_CNT]\`
+            List:   \`zbackup -l|--list [DATASET|ID|DATASET ID]\`
+            Delete: \`zbackup -d|--delete [DATASET|ID|DATASET ID]\`
+            Export: \`zbackup -e|--export [DATASET|ID|DATASET|ID]\`
+            Import: \`zbackup -i|--import [DATASET|ID|DATASET ID] FILENAME\`"
+    fi
+    exit 0
+}
+
+
+if [ $# -eq 0 ]; then
+    printUsage
+fi
+
+case "$1" in
+    '-l'|'--list')
+        zlist $2 $3;;
+    '-d'|'--delete')
+        zdelete $2 $3;;
+    '-e'|'--export')
+        zexport $2 $3;;
+    '-i'|'-import')
+        zimport $2 $3;;
+    *)
+        zcreate $1 $2;;
+esac
+
